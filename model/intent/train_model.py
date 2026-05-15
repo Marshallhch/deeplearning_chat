@@ -50,4 +50,65 @@ padded_seqs = preprocessing.sequence.pad_sequences(sequences, maxlen=15, padding
 ds = tf.data.Dataset.from_tensor_slices((padded_seqs, intents))
 ds = ds.shuffle(len(queries))
 
-print(len(ds))
+# print(len(ds))
+
+# 데이터 분리
+train_size = int(len(padded_seqs) * 0.7)
+val_size = int(len(padded_seqs) * 0.2)
+test_size = int(len(padded_seqs) * 0.1)
+
+train_ds = ds.take(train_size).batch(20)
+val_ds = ds.skip(train_size).take(val_size).batch(20)
+test_ds = ds.skip(train_size + val_size).take(test_size).batch(20)
+
+print(len(train_ds), len(val_ds), len(test_ds))
+
+# 하이퍼 파라미터
+DROPOUT_PROB = 0.5
+EMB_SIZE=128
+EPOCH=5
+VOCAB_SIZE=len(p.word_index) + 1
+MAX_SEQ_LEN=15
+
+# CNN 모델 정의
+input_layer = Input(shape=(15,))
+embedding_layer = Embedding(VOCAB_SIZE, EMB_SIZE, input_length=15)(input_layer)
+dropout_emb = Dropout(rate=DROPOUT_PROB)(embedding_layer)
+
+# 합성곱층 추가 및 통합
+conv1 = Conv1D(filters=128, kernel_size=3, padding='valid', activation='relu')(dropout_emb)
+pool1 = GlobalMaxPooling1D()(conv1)
+
+conv2 = Conv1D(filters=128, kernel_size=4, padding='valid', activation='relu')(dropout_emb)
+pool2 = GlobalMaxPooling1D()(conv2)
+
+conv3 = Conv1D(filters=128, kernel_size=5, padding='valid', activation='relu')(dropout_emb)
+pool3 = GlobalMaxPooling1D()(conv3)
+
+# 통합
+concat = concatenate([pool1, pool2, pool3])
+
+# 완전 연결층
+hidden = Dense(128, activation='relu')(concat)
+dropout_hidden = Dropout(rate=DROPOUT_PROB)(hidden)
+logits = Dense(5, name='logits')(dropout_hidden)
+predictions = Dense(5, activation='softmax')(logits)
+
+# 모델 생성
+model = Model(inputs=input_layer, outputs=predictions)
+
+# 모델 요약
+# model.summary()
+
+# 모델 컴파일
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+# 모델 학습
+model.fit(train_ds, epochs=EPOCH)
+
+# 모델 평가
+loss, accuracy = model.evaluate(test_ds)
+print(f'loss: {loss}, accuracy: {accuracy}')
+
+# 모델 저장
+model.save(os.path.join(root_dir, 'model', 'intent', 'intent_model.keras'))
